@@ -16,21 +16,20 @@
 
 #!/bin/bash
 
-function die (){
+function die () {
     echo "$1" 1>&2
     exit 1
 }
 
 if [[ "$#" -ne 1 ]]; then
 	die "Usage: $0 threshold"
-elif ( [[ "$1" == "-h" ]] || [[ "$1" == "--help" ]] ); then
+elif [[ "$1" == "-h" ]] || [[ "$1" == "--help" ]]; then
 	die "Usage: $0 threshold
-Check which users have unsuccessfully tried to enter more than
+Check which users have unsuccessfully tried to login more than
 threshold times and register the usernames in a file created
 the first time the command is used.
 Filename: /var/log/login_unsuccessful
 Example: $0 3
-
 Options:
 	--help, -h	display this help text and exit"
 elif [[ ! $1 =~ ^[0-9]+$ ]]; then
@@ -43,23 +42,29 @@ PASSWD=/etc/passwd
 SECURE=/var/log/secure
 OUTPUT=/var/log/login_unsuccessful
 
-
-if [[ ! -f $OUTPUT ]];then
-  touch $OUTPUT
+# Create the first time the log file
+if [[ ! -f $OUTPUT ]]; then
+  touch "$OUTPUT"
 fi
+
 echo "TRHESHOLD: $TRHESHOLD"
 
-LC_ALL=C date "+Y%-%m-%d" -r $testigo
+# Check user root
+N_TRIES=$(grep -c "check failed for user (root)" "$SECURE")
+if (( N_TRIES > TRHESHOLD )); then
+      echo "User (root) have unsuccessfully tried to login more than $TRHESHOLD times" >> "$OUTPUT"
+fi
 
-while IFS=':' read -r user pswd uid others; do
-  
-  if (( $uid >= $UID_MAX ));then
-    N_TRIES=$(grep "check failed for user ($user)" $SECURE | wc -l)
-    if(( $N_TRIES > $TRHESHOLD ));then
-      echo "User ($user) have unsuccessfully tried to enter more than $TRHESHOLD times" >> $OUTPUT
+#LC_ALL=C date "+Y%-%m-%d" -r "$testigo"
+
+# Check rest users
+while IFS=':' read -r user _ uid _; do
+  if (( uid >= UID_MAX )); then
+    N_TRIES=$(grep -c "check failed for user ($user)" "$SECURE")
+    if (( N_TRIES > TRHESHOLD ));then
+      echo "User ($user) have unsuccessfully tried to login more than $TRHESHOLD times" >> "$OUTPUT"
     fi
   fi
-    
 done < $PASSWD
 
 exit 0
