@@ -47,27 +47,96 @@ if [[ ! -f $OUTPUT ]]; then
   touch "$OUTPUT"
 fi
 
-echo "TRHESHOLD: $TRHESHOLD"
-
-# Check user root
-N_TRIES=$(grep -c "check failed for user (root)" "$SECURE")
-if (( N_TRIES > TRHESHOLD )); then
-      echo "User (root) have unsuccessfully tried to login more than $TRHESHOLD times" >> "$OUTPUT"
+if [[ ! -r $PASSWD ]]; then
+  die "Can't read file $PASSWD"
 fi
 
-#LC_ALL=C date "+Y%-%m-%d" -r "$testigo"
+if [[ ! -r $SECURE ]]; then
+  die "Can't read file $SECURE"
+fi
+
+echo "TRHESHOLD: $TRHESHOLD"
+
+MONTH_REFERENCE=$(LC_ALL=C date "+%b" -r $SECURE)
+DAY_REFERENCE=$(LC_ALL=C date "+%d" -r $SECURE)
+HOUR_REFERENCE=$(LC_ALL=C date "+%H" -r $SECURE)
+MINUTE_REFERENCE=$(LC_ALL=C date "+%M" -r $SECURE)
+SECOND_REFERENCE=$(LC_ALL=C date "+%S" -r $SECURE)
+
+PREVIOUS_IFS=$IFS
+
+IFS=$'\n' arr=($(grep "check failed for user (root)" "$SECURE"))
+
+IFS=$PREVIOUS_IFS
+N_TRIES=0
+for line in  "${arr[@]}"; do
+  # check if the date is greater than the date of modification
+  mont=$(echo $line | cut -d' ' -f1)
+  if (( mont >= MONTH_REFERENCE ));then 
+    day=$(echo $line | cut -d' ' -f2)
+    if (( day >= DAY_REFERENCE ));then 
+      hours=$(echo $line | cut -d' ' -f3)
+      hour=$(echo $hours | cut -d':' -f1)
+      if(( hour >= HOUR_REFERENCE ));then 
+        minute=$(echo $hours | cut -d':' -f2)
+        if (( minute >= MINUTE_REFERENCE ));then 
+          second=$(echo $hours | cut -d':' -f3)
+          if (( second >= SECOND_REFERENCE ));then 
+            N_TRIES=(( N_TRIES + 1 ))
+            echo "$mont $day $hour $minute $second"
+          fi            
+        fi
+      fi
+    fi
+  fi
+done
+
+if (( N_TRIES > TRHESHOLD ));then
+  echo "User ($user) have unsuccessfully tried to login more than $TRHESHOLD times" >> "$OUTPUT"
+fi  
+
+
 
 # Check rest users
 while IFS=':' read -r user _ uid _; do
   if (( uid >= UID_MAX )); then
-    N_TRIES=$(grep -c "check failed for user ($user)" "$SECURE")
+    N_TRIES=0
+
+    PREVIOUS_IFS=$IFS
+
+    IFS=$'\n' arr=($(grep "check failed for user (root)" "$SECURE"))
+
+    IFS=$PREVIOUS_IFS
+
+    for line in  "${arr[@]}"; do
+
+      # check if the date is greater than the date of modification
+      mont=$(echo $line | cut -d' ' -f1)
+      if (( mont >= MONTH_REFERENCE ));then 
+        day=$(echo $line | cut -d' ' -f2)
+        if (( day >= DAY_REFERENCE ));then 
+          hours=$(echo $line | cut -d' ' -f3)
+          hour=$(echo $hours | cut -d':' -f1)
+          if(( hour >= HOUR_REFERENCE ));then 
+            minute=$(echo $hours | cut -d':' -f2)
+            if (( minute >= MINUTE_REFERENCE ));then 
+              second=$(echo $hours | cut -d':' -f3)
+              if (( second >= SECOND_REFERENCE ));then 
+                N_TRIES=(( N_TRIES + 1 ))
+                echo "$mont $day $hour $minute $second"
+              fi            
+            fi
+          fi
+        fi
+      fi
+    
+    done
+
     if (( N_TRIES > TRHESHOLD ));then
       echo "User ($user) have unsuccessfully tried to login more than $TRHESHOLD times" >> "$OUTPUT"
     fi
+
   fi
 done < $PASSWD
 
 exit 0
-
-#grep "check failed for user ($user)" /var/log/secure
-#LC_ALL=C date "formato" -r $testigo
