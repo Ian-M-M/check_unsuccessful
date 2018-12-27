@@ -41,7 +41,8 @@ UID_MAX=$(grep "UID_MIN" /etc/login.defs | tr -s '[:blank:]' | cut -d' ' -f2)
 PASSWD=/etc/passwd
 SECURE=/var/log/secure
 OUTPUT=/var/log/login_unsuccessful
-flag=0
+flag=0 #0==el archivo output existe / 1=lo contrario
+show_date=0 #0==mostrar fecha de ejecucion de este programa en el output / 1==lo contrario
 
 # Create the first time the log file
 if [[ ! -w $OUTPUT ]]; then
@@ -108,7 +109,26 @@ while IFS=':' read -r user _ uid _; do
     done
 
     if (( N_TRIES > TRHESHOLD ));then
-      echo "$DATE_INIT_SCRIPT User ($user) have unsuccessfully tried to login more than $TRHESHOLD times" >> "$OUTPUT"
+			if((show_date == 0));then
+				show_date=1
+				echo "$DATE_INIT_SCRIPT" "Threshold=$TRHESHOLD">> "$OUTPUT"
+			fi
+      printf "  User ($user) have unsuccessfully tried to login ($N_TRIES) times" >> $OUTPUT
+
+
+			#parte opcional
+	
+			PREVIOUS_IFS="$IFS"
+		  IFS=$'\n' expires=($(LC_ALL=C chage -l "$user" | grep "Password expires\|Account expires" | cut -d: -f2))
+		  [[ "${expires[0]}" = " never" ]] && printf "\t[Password never expires]" >> $OUTPUT
+			[[ "${expires[1]}" = " never" ]] && printf "\t[Account never expires]" >> $OUTPUT
+		  IFS="$PREVIOUS_IFS"
+
+			#--------------
+			
+
+			printf "\n" >> $OUTPUT
+
     fi
 
   fi
