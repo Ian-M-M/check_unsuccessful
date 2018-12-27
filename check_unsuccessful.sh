@@ -133,5 +133,4 @@ while IFS=':' read -r user _ uid _; do
 
   fi
 done < $PASSWD
-
 exit 0
