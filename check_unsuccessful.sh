@@ -78,7 +78,7 @@ while IFS=':' read -r user _ uid _; do
 
     PREVIOUS_IFS="$IFS"
 
-    IFS=$'\n' arr=($(grep "check failed for user ($user)" "$SECURE"))
+    IFS=$'\n' arr=($(grep "user=$user" "$SECURE"))
 
     IFS="$PREVIOUS_IFS"
 
