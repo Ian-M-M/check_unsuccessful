@@ -1,19 +1,3 @@
-# Se trata de implementar una utilidad para comprobar los usuarios (no cuentas de servicios)
-# que hayan realizado más de un cierto número de intentos fallidos de acceso al sistema.
-
-# Para realizar lo anterior se debe utilizar como fuente de datos de acceso el fichero/var/log/secure.
-
-# El script admitirá la siguiente sintaxis: check_unsuccessful threshold y generará un fichero
-# /var/log/login_unsuccessful con los nombres de las cuentas que hayan intentado acceder al sistema
-# de forma infructuosa más de <threshold> veces.
-
-# Asimismo dicho script debe tener una definición funcional que permita planificarlo en un fichero
-# crontab para que se ejecute periódicamente y que en cada ejecución se mire a partir de la fecha de la última ejecución del script.
-
-# Opciones adicionales:
-# Incorporar en el fichero anterior por cada usuario una marca en aquellos cuya cuenta no tienen
-# caducidad y otra marca para si no tienen caducidad de contraseñas.
-
 #!/bin/bash
 
 function die () {
@@ -36,18 +20,29 @@ elif [[ ! $1 =~ ^[0-9]+$ ]]; then
 	die "[!] ERROR: $1 is not a natural number"
 fi
 
-TRHESHOLD=$1
-UID_MAX=$(grep "UID_MIN" /etc/login.defs | tr -s '[:blank:]' | cut -d' ' -f2)
+DEFS=/etc/login.defs
 PASSWD=/etc/passwd
 SECURE=/var/log/secure
+
+# Check files
+if [[ ! -r $PASSWD ]]; then
+  die "Can't read file $PASSWD"
+elif [[ ! -r $SECURE ]]; then
+  die "Can't read file $SECURE"
+elif [[ ! -r $DEFS ]]; then
+  die "Can't read file $DEFS"
+fi
+
+TRHESHOLD=$1
+UID_MAX=$(grep "UID_MIN" "$DEFS" | tr -s '[:blank:]' | cut -d' ' -f2)
 OUTPUT=/var/log/login_unsuccessful
-flag=0 #0==el archivo output existe / 1=lo contrario
-show_date=0 #0==mostrar fecha de ejecucion de este programa en el output / 1==lo contrario
+OUTPUT_EXIST=0 
+SHOW_DATE=0 
 
 # Create the first time the log file
 if [[ ! -w $OUTPUT ]]; then
   touch "$OUTPUT"
-  flag=1
+  OUTPUT_EXIST=1
   MONTH_REFERENCE=0
   DAY_REFERENCE=0
   HOUR_REFERENCE=0
@@ -55,17 +50,9 @@ if [[ ! -w $OUTPUT ]]; then
   SECOND_REFERENCE=0 
 fi
 
-if [[ ! -r $PASSWD ]]; then
-  die "Can't read file $PASSWD"
-fi
+DATE_INIT_SCRIPT=$(LC_ALL=C date "+%Y-%m-%d %H:%M:%S")
 
-if [[ ! -r $SECURE ]]; then
-  die "Can't read file $SECURE"
-fi
-
-DATE_INIT_SCRIPT=$(LC_ALL=C date "+%m-%d %H:%M:%S")
-
-if (( $flag == 0 )) ;then
+if (( OUTPUT_EXIST == 0 )) ;then
   MONTH_REFERENCE=$(LC_ALL=C date "+%m" -r $OUTPUT)
   DAY_REFERENCE=$(LC_ALL=C date "+%d" -r $OUTPUT)
   HOUR_REFERENCE=$(LC_ALL=C date "+%H" -r $OUTPUT)
@@ -73,26 +60,26 @@ if (( $flag == 0 )) ;then
   SECOND_REFERENCE=$(LC_ALL=C date "+%S" -r $OUTPUT)
 fi
 
+# Obtain users from /etc/passwd 
 while IFS=':' read -r user _ uid _; do
+
   if (( uid >= UID_MAX )) || (( uid == 0 )); then
     N_TRIES=0
-
     PREVIOUS_IFS="$IFS"
 
-    IFS=$'\n' arr=($(grep "user=$user" "$SECURE"))
-
+	# Find unsuccessful logins
+    IFS=$'\n' arr=($(grep " user=$user" "$SECURE"))
     IFS="$PREVIOUS_IFS"
 
     for line in  "${arr[@]}"; do
-
-      # check if the date is greater than the date of modification
+      # Check if the date is greater than the date of modification
       month=$(echo $line | cut -d' ' -f1)
       month_value=$(date -d "$month 1 1" "+%m")
       day=$(echo $line | cut -d' ' -f2)
-      hours=$(echo $line | cut -d' ' -f3)
-      hour=$(echo $hours | cut -d':' -f1)
-      minute=$(echo $hours | cut -d':' -f2)
-      second=$(echo $hours | cut -d':' -f3)
+      time=$(echo $line | cut -d' ' -f3)
+      hour=$(echo $time | cut -d':' -f1)
+      minute=$(echo $time | cut -d':' -f2)
+      second=$(echo $time | cut -d':' -f3)
 
       if (( month_value > MONTH_REFERENCE ));then
         ((N_TRIES++))
@@ -107,30 +94,31 @@ while IFS=':' read -r user _ uid _; do
       fi
     
     done
-
-    if (( N_TRIES > TRHESHOLD ));then
-			if((show_date == 0));then
-				show_date=1
-				echo "$DATE_INIT_SCRIPT" "Threshold=$TRHESHOLD">> "$OUTPUT"
-			fi
-      printf "  User ($user) have unsuccessfully tried to login ($N_TRIES) times" >> $OUTPUT
-
-
-			#parte opcional
 	
-			PREVIOUS_IFS="$IFS"
-		  IFS=$'\n' expires=($(LC_ALL=C chage -l "$user" | grep "Password expires\|Account expires" | cut -d: -f2))
-		  [[ "${expires[0]}" = " never" ]] && printf "\t[Password never expires]" >> $OUTPUT
-			[[ "${expires[1]}" = " never" ]] && printf "\t[Account never expires]" >> $OUTPUT
-		  IFS="$PREVIOUS_IFS"
+    if (( N_TRIES > TRHESHOLD )); then
+		
+		if((SHOW_DATE == 0)); then
+			SHOW_DATE=1
+			echo "$DATE_INIT_SCRIPT" "Threshold=$TRHESHOLD">> "$OUTPUT"
+		fi
+    	printf "  User (%s) have unsuccessfully tried to login (%d) times" "$user" "$N_TRIES" >> "$OUTPUT"
 
-			#--------------
+		# Optional part: show if user and user's password doesn't expires 
+
+		PREVIOUS_IFS="$IFS"
+		IFS=$'\n' expires=($(LC_ALL=C chage -l "$user" | grep "Password expires\|Account expires" | cut -d: -f2))
+		[[ "${expires[0]}" = " never" ]] && printf "\t[Password never expires]" >> $OUTPUT
+		[[ "${expires[1]}" = " never" ]] && printf "\t[Account never expires]" >> $OUTPUT
+		IFS="$PREVIOUS_IFS"
+
+		#--------------
 			
-
-			printf "\n" >> $OUTPUT
+		printf "\n" >> "$OUTPUT"
 
     fi
 
   fi
-done < $PASSWD
+
+done < "$PASSWD"
+
 exit 0
